@@ -1,17 +1,4 @@
-# Supplementary Tables 6-8: resistance trends in urine isolates of E. coli, K. pneumoniae and
-# P. aeruginosa.
-#
-# For each organism-antibiotic pair, a beta-binomial GLMM (logit link) of resistant isolates out of
-# isolates tested per state-month, with month as a fixed effect and random intercepts and slopes by
-# state. States are included if they have data in at least 75% of the months between the first and
-# last observation of the pair and at least two pincodes. If a model fails (error, warning,
-# non-positive-definite Hessian), binomial and random-intercept-only models are tried in order.
-# Trends are average marginal effects in percentage points per year; p-values are BH-adjusted
-# within each organism. Intrinsic resistance pairs (CLSI M100 Appendix B) are not modelled.
-#
-# Input : data/ast_clean.csv
-# Output: results/tables/supp_table6-8_resistance_trends_<organism>.csv
-
+source("R/setup.R")
 library(data.table)
 library(zoo)
 library(glmmTMB)
@@ -43,7 +30,7 @@ ast[, ym := as.yearmon(as.Date(end_state_date))]
 
 control <- glmmTMBControl(optCtrl = list(iter.max = 1000, eval.max = 1000))
 
-fit_model <- function(d) {
+fit_resistance_model <- function(d, context) {
   slope <- cbind(R, Total - R) ~ seq_num + (1 + seq_num | state)
   intercept <- cbind(R, Total - R) ~ seq_num + (1 | state)
   candidates <- list(
@@ -52,8 +39,11 @@ fit_model <- function(d) {
     list(intercept, betabinomial("logit"), "beta-binomial", "intercept|state"),
     list(intercept, binomial("logit"), "binomial", "intercept|state"))
   for (m in candidates) {
+    message <- ""
     fit <- tryCatch(glmmTMB(m[[1]], family = m[[2]], data = d, control = control),
-                    error = function(e) NULL, warning = function(w) NULL)
+      error = function(e) { message <<- conditionMessage(e); NULL },
+      warning = function(w) { message <<- conditionMessage(w); NULL })
+    record_fit("results/checks/resistance_fit_attempts.csv", context, m[[3]], m[[4]], fit, message)
     if (!is.null(fit) && isTRUE(fit$sdr$pdHess) && is.finite(logLik(fit)) &&
         !any(is.na(summary(fit)$coefficients$cond[, "Std. Error"]))) {
       return(list(fit = fit, model_type = m[[3]], random_structure = m[[4]]))
@@ -62,50 +52,60 @@ fit_model <- function(d) {
   NULL
 }
 
+source("R/monthly_marginal_effect.R")
+if (file.exists("results/checks/resistance_fit_attempts.csv")) file.remove("results/checks/resistance_fit_attempts.csv")
+resistance_tables <- list()
+resistance_eligibility <- list()
 for (organism in organisms) {
   counts <- ast[organism_clean == organism,
-                .(R = sum(RESISTANT), Total = sum(RESISTANT + INTERMEDIATE + SENSITIVE)),
-                by = .(antibiotic = antibiotic_clean, state, pincode, ym)][Total > 0]
-  rows <- list()
-
+    .(R = sum(RESISTANT), Total = sum(RESISTANT + INTERMEDIATE + SENSITIVE)),
+    by = .(antibiotic = antibiotic_clean, state, pincode, ym)][Total > 0]
+  revised_rows <- state_rows <- list()
   for (ab in setdiff(antibiotics, not_modelled[[organism]])) {
     m <- counts[antibiotic == ab]
-    if (nrow(m) == 0) next
-
-    # states observed in >=75% of months between first and last observation, with >=2 pincodes
+    if (!nrow(m)) next
     span <- as.integer(round((max(m$ym) - min(m$ym)) * 12)) + 1L
     covered <- m[, .(share = uniqueN(ym) / max(span, 1L)), by = state]
-    m <- m[state %in% covered[share >= 0.75, state]]
+    m <- m[state %in% covered[share >= .75, state]]
     m <- m[state %in% m[, .(pincodes = uniqueN(pincode)), by = state][pincodes >= 2, state]]
-    if (nrow(m) == 0) next
-
     d <- m[, .(R = sum(R), Total = sum(Total)), by = .(state, ym)][Total > 0]
-    if (uniqueN(d$state) < 3 || nrow(d) < 12) next
+    eligible <- uniqueN(d$state) >= 3 && nrow(d) >= 12
+    resistance_eligibility[[paste(organism, ab)]] <- data.table(
+      organism = organism, antibiotic = ab, n_states = uniqueN(d$state),
+      n_state_months = nrow(d), eligible = eligible)
+    if (!eligible) next
     d[, `:=`(seq_num = as.numeric((ym - min(ym)) * 12), state = factor(state))]
-
-    model <- fit_model(d)
-    if (is.null(model)) next
-
-    coefs <- summary(model$fit)$coefficients$cond
-    beta <- coefs["seq_num", "Estimate"]
-    se <- coefs["seq_num", "Std. Error"]
-    p <- fitted(model$fit)
-    slope_pp <- mean(p * (1 - p))            # x 1200: logit slope -> percentage points per year
-
-    rows[[ab]] <- data.table(
-      organism = organism, antibiotic = ab,
-      model_type = model$model_type, random_structure = model$random_structure,
-      ppt_per_year = beta * slope_pp * 1200,
-      ppt_per_year_CI_low = (beta - 1.96 * se) * slope_pp * 1200,
-      ppt_per_year_CI_high = (beta + 1.96 * se) * slope_pp * 1200,
-      p_value = coefs["seq_num", "Pr(>|z|)"], p_value_adj_BH = NA_real_,
-      mean_resistance_pct = 100 * sum(d$R) / sum(d$Total),
+    stopifnot(all(d$R >= 0), all(d$Total >= d$R))
+    context <- paste(organism, ab, sep = " | ")
+    cat("Fitting", context, "\n"); flush.console()
+    model <- fit_resistance_model(d, context)
+    if (is.null(model)) stop("All candidate models failed: ", context)
+    fit <- model$fit
+    stopifnot(fit$fit$convergence == 0)
+    effect <- monthly_marginal_effect(fit, d, "seq_num")
+    common <- data.table(organism = organism, antibiotic = ab,
+      model_type = model$model_type, random_structure = model$random_structure)
+    details <- data.table(mean_resistance_pct = 100 * sum(d$R) / sum(d$Total),
       n_states = uniqueN(d$state), n_pincodes = uniqueN(m$pincode), n_state_months = nrow(d))
-  }
+    revised_rows[[ab]] <- cbind(common, data.table(
+      ppt_per_month = effect$estimate, ppt_per_month_CI_low = effect$low,
+      ppt_per_month_CI_high = effect$high, p_value = effect$p_value), details)
 
-  out <- rbindlist(rows)
-  out[, p_value_adj_BH := p.adjust(p_value, method = "BH")]
+    state_rows[[ab]] <- cbind(data.table(organism = organism, antibiotic = ab), effect$state_summary)
+    save_model(fit, d, paste("resistance", organism, ab))
+    last_resistance_model <- fit
+    last_resistance_data <- d
+    cat(sprintf("  %.5f pp/month [%.5f, %.5f]\n", effect$estimate, effect$low, effect$high))
+  }
+  revised <- rbindlist(revised_rows)
+  revised[, p_value_adj_BH := p.adjust(p_value, "BH")]
+  slug <- gsub(" ", "_", tolower(organism))
   number <- match(organism, organisms) + 5
-  fwrite(out, sprintf("results/tables/supp_table%d_resistance_trends_%s.csv", number,
-                      gsub(" ", "_", tolower(organism))))
+  stem <- sprintf("results/tables/supp_table%d_resistance_trends_%s", number, slug)
+  fwrite(revised, paste0(stem, "_monthly.csv"))
+  fwrite(rbindlist(state_rows), paste0("results/checks/resistance_state_effects_", slug, ".csv"))
+  resistance_tables[[organism]] <- revised
+  print(revised)
 }
+fwrite(rbindlist(resistance_eligibility), "results/checks/resistance_eligibility.csv")
+writeLines(capture.output(sessionInfo()), "results/checks/R_session_resistance.txt")

@@ -1,18 +1,4 @@
-# Lead-lag analysis (prewhitened cross-correlation) and Supplementary Figures 8-11.
-#
-# For a pair of monthly series x and y: fit an ARIMA model to x (auto.arima), filter y with the
-# same model, and cross-correlate the two residual series at lags -12 to +12 months. Missing months
-# stay missing (no interpolation) and at least 24 paired months are required. The peak is the lag
-# with the largest absolute correlation; p-values are unadjusted (exploratory analysis).
-# Negative lag: x leads y. Positive lag: y leads x.
-#
-#   1. Prescription vs resistance (urine E. coli and K. pneumoniae): x = monthly share of all
-#      antibiotic prescriptions, y = monthly % resistant to the same antibiotic.
-#   2. Resistance vs resistance (urine E. coli and K. pneumoniae): x and y = monthly % resistant
-#      to two different antibiotics.
-#
-# Input : data/prescription_resistance_monthly.csv, data/ast_clean.csv
-# Output: results/tables/leadlag_*.csv, results/figures/supp_fig8-11_*.png
+source("R/setup.R")
 
 suppressPackageStartupMessages({
   library(dplyr)
@@ -26,10 +12,7 @@ dir.create("results/figures", recursive = TRUE, showWarnings = FALSE)
 MIN_MONTHS <- 24
 LAG_MAX <- 12
 
-# ---------------------------------------------------------------- method
-
 on_calendar <- function(residuals, n) {
-  # put residuals back on the full monthly grid (auto.arima can drop leading missing months)
   out <- rep(NA_real_, n)
   position <- as.integer(round(as.numeric(time(residuals))))
   keep <- position >= 1 & position <= n
@@ -51,7 +34,6 @@ prewhiten <- function(x, y) {
 }
 
 ccf_by_lag <- function(px, py) {
-  # cross-correlation cor(x[t + lag], y[t]); n = residual pairs available at each lag
   cc <- ccf(px, py, lag.max = LAG_MAX, plot = FALSE, na.action = na.pass)
   out <- data.frame(lag = as.integer(cc$lag), ccf = as.numeric(cc$acf))
   out$n <- sapply(out$lag, function(k) {
@@ -79,8 +61,6 @@ monthly_grid <- function(d) {
     arrange(antibiotic, month)
 }
 
-# ---------------------------------------------------------------- data
-
 merged <- read.csv("data/prescription_resistance_monthly.csv") %>%
   mutate(organism = tolower(trimws(organism_clean)), antibiotic = tolower(trimws(salt_name)),
          month = as.Date(paste0(month_year, "-01")))
@@ -106,7 +86,6 @@ resistance_wide <- list()
 for (org in c("escherichia coli", "klebsiella pneumoniae")) {
   slug <- gsub(" ", "_", org)
 
-  # 1. prescription share (x) vs % resistant (y), same antibiotic
   panel <- merged %>% filter(organism == org) %>%
     group_by(month, antibiotic) %>%
     summarise(pct_resistant = ifelse(sum(total_tests) > 0, 100 * sum(RESISTANT) / sum(total_tests), NA_real_),
@@ -125,7 +104,6 @@ for (org in c("escherichia coli", "klebsiella pneumoniae")) {
   })) %>% arrange(desc(abs(ccf)), p_value)
   write.csv(results, paste0("results/tables/leadlag_prescription_vs_resistance_", slug, ".csv"), row.names = FALSE)
 
-  # 2. % resistant to antibiotic A (x) vs antibiotic B (y)
   panel <- ast %>% filter(organism == org) %>%
     group_by(month, antibiotic) %>%
     summarise(tested = sum(SENSITIVE + RESISTANT + INTERMEDIATE),
@@ -145,33 +123,71 @@ for (org in c("escherichia coli", "klebsiella pneumoniae")) {
   write.csv(results, paste0("results/tables/leadlag_resistance_vs_resistance_", slug, ".csv"), row.names = FALSE)
 }
 
-# ---------------------------------------------------------------- Supplementary Figures 8-11
-
-plot_pair <- function(x, y, title) {
+spec <- data.frame(
+  figure = c(rep(7, 4), rep(8, 2), rep(9, 2), 10),
+  panel = c("a", "b", "c", "d", "a", "b", "a", "b", "a"),
+  kind = c(rep("resistance_resistance", 4), rep("prescription_resistance", 5)),
+  organism = c(rep("escherichia coli", 4), rep("klebsiella pneumoniae", 4), "escherichia coli"),
+  antibiotic_x = c("ceftazidime", "ampicillin", "ceftriaxone", "ceftriaxone", "ceftazidime",
+                   "levofloxacin", "amoxicillin/clavulanic acid", "aztreonam", "cefotaxime"),
+  antibiotic_y = c("trimethoprim/sulfamethoxazole", "ceftriaxone", "trimethoprim/sulfamethoxazole",
+                   "tetracycline", "ceftazidime", "levofloxacin", "amoxicillin/clavulanic acid",
+                   "aztreonam", "cefotaxime"))
+curves <- inputs <- residual_series <- peaks <- plot_objects <- list()
+for (i in seq_len(nrow(spec))) {
+  s <- spec[i, ]
+  if (s$kind == "resistance_resistance") {
+    d <- resistance_wide[[s$organism]]
+    x <- d[[s$antibiotic_x]]; y <- d[[s$antibiotic_y]]
+  } else {
+    d <- filter(prescription_panel[[s$organism]], antibiotic == s$antibiotic_x)
+    x <- d$exposure; y <- d$pct_resistant
+  }
   pw <- prewhiten(x, y)
-  plot(ccf(pw$x, pw$y, lag.max = LAG_MAX, plot = FALSE, na.action = na.pass), main = title)
+  if (is.null(pw)) stop("Selected figure pair has insufficient data: ", s$antibiotic_x)
+  cc <- ccf_by_lag(pw$x, pw$y)
+  obj <- ccf(pw$x, pw$y, lag.max = LAG_MAX, plot = FALSE, na.action = na.pass)
+  plot_objects[[i]] <- obj
+  cc$original_plot_bound <- qnorm(.975) / sqrt(obj$n.used)
+  cc$lag_specific_nominal_bound <- qnorm(.975) / sqrt(cc$n)
+  cc$crosses_original_bound <- abs(cc$ccf) > cc$original_plot_bound
+  cc$nominal_p_below_05 <- cc$p_value < .05
+  curves[[i]] <- cbind(s[rep(1, nrow(cc)), ], cc, row.names = NULL)
+  peaks[[i]] <- cbind(s, lead_lag(x, y, s$antibiotic_x, s$antibiotic_y))
+  inputs[[i]] <- cbind(s[rep(1, length(x)), ], month = as.character(d$month), x = x, y = y, row.names = NULL)
+  residual_series[[i]] <- cbind(s[rep(1, length(x)), ], month = as.character(d$month),
+                               residual_x = pw$x, residual_y = pw$y, row.names = NULL)
 }
+write.csv(bind_rows(curves), "results/tables/leadlag_plotted_lags.csv", row.names = FALSE)
+write.csv(bind_rows(peaks), "results/tables/leadlag_plotted_peaks.csv", row.names = FALSE)
+write.csv(bind_rows(inputs), "results/checks/leadlag_plotted_inputs.csv", row.names = FALSE)
+write.csv(bind_rows(residual_series), "results/checks/leadlag_plotted_residuals.csv", row.names = FALSE)
 
-ecoli <- resistance_wide[["escherichia coli"]]
-png("results/figures/supp_fig8_ecoli_resistance_vs_resistance.png", width = 14, height = 10, units = "in", res = 300)
-par(mfrow = c(2, 2))
-for (p in list(c("ceftazidime", "trimethoprim/sulfamethoxazole"), c("ampicillin", "ceftriaxone"),
-               c("ceftriaxone", "trimethoprim/sulfamethoxazole"), c("ceftriaxone", "tetracycline"))) {
-  plot_pair(ecoli[[p[1]]], ecoli[[p[2]]], paste(label(p[1]), "vs", label(p[2])))
-}
-invisible(dev.off())
-
-prescription_figure <- function(file, org, short, antibiotics) {
-  png(file.path("results/figures", file), width = 7 * length(antibiotics), height = 5.4, units = "in", res = 300)
-  par(mfrow = c(1, length(antibiotics)))
-  for (ab in antibiotics) {
-    d <- filter(prescription_panel[[org]], antibiotic == ab)
-    plot_pair(d$exposure, d$pct_resistant, paste0(label(ab), " - Pres normalised vs % Resistant (", short, ")"))
+for (figure in unique(spec$figure)) {
+  ix <- which(spec$figure == figure)
+  cols <- min(2, length(ix)); rows <- ceiling(length(ix) / cols)
+  png(sprintf("results/figures/supp_figure_%02d_leadlag.png", figure),
+      width = 7 * cols, height = 5.6 * rows, units = "in", res = 200)
+  par(mfrow = c(rows, cols), mar = c(6, 4.5, 5.3, 1.5))
+  for (i in ix) {
+    s <- spec[i, ]; cc <- curves[[i]]
+    title <- if (s$kind == "resistance_resistance") {
+      paste0(s$panel, "  ", paste(strwrap(paste(s$antibiotic_x, "vs", s$antibiotic_y),
+                                       width = 52), collapse = "\n"), "\n", s$organism)
+    } else {
+      paste0(s$panel, "  ", s$antibiotic_x,
+             "\nPrescription share (x) vs resistance (y)\n", s$organism)
+    }
+    limits <- range(cc$ccf, -cc$lag_specific_nominal_bound, cc$lag_specific_nominal_bound)
+    plot(cc$lag, cc$ccf, type = "h", ylim = limits * 1.05, main = title,
+         cex.main = .85, xlab = "Lag (months): negative = x leads y", ylab = "Prewhitened cross-correlation")
+    abline(h = 0, col = "grey40")
+    abline(h = c(-1, 1) * cc$original_plot_bound[1], col = "blue", lty = 2)
+    lines(cc$lag, cc$lag_specific_nominal_bound, col = "#b45309", lty = 3)
+    lines(cc$lag, -cc$lag_specific_nominal_bound, col = "#b45309", lty = 3)
+    mtext("Blue: paper bound; brown: lag-specific nominal bound (unadjusted)", side = 1, line = 4.4, cex = .64)
   }
   invisible(dev.off())
 }
-prescription_figure("supp_fig9_kpneumoniae_prescription_vs_resistance.png", "klebsiella pneumoniae", "Kpn",
-                    c("ceftazidime", "levofloxacin"))
-prescription_figure("supp_fig10_kpneumoniae_prescription_vs_resistance.png", "klebsiella pneumoniae", "Kpn",
-                    c("amoxicillin/clavulanic acid", "aztreonam"))
-prescription_figure("supp_fig11_ecoli_prescription_vs_resistance.png", "escherichia coli", "E. coli", "cefotaxime")
+print(bind_rows(peaks)[, c("figure", "panel", "antibiotic_x", "lag_months", "ccf", "p_value")])
+writeLines(capture.output(sessionInfo()), "results/checks/R_session_leadlag.txt")
