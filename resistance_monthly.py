@@ -1,12 +1,4 @@
-"""Supplementary Figures 5-7: monthly resistance in urine isolates.
-
-For E. coli, K. pneumoniae and P. aeruginosa, the ten antibiotics with the most interpretable
-results (R + I + S). Resistance = 100 x R / (R + I + S). 95% intervals: 1,000 bootstrap
-resamples of states within each month and antibiotic.
-
-Input : data/ast_clean.csv
-Output: results/figures/supp_fig5-7_*.png and results/figures/supp_fig5-7_resistance_monthly_data.csv
-"""
+"""Monthly urinary resistance with state bootstrap intervals."""
 
 import os
 
@@ -20,6 +12,7 @@ import matplotlib.pyplot as plt
 os.makedirs("results/figures", exist_ok=True)
 COUNTS = ["RESISTANT", "INTERMEDIATE", "SENSITIVE"]
 ORGANISMS = {"escherichia coli": 5, "klebsiella pneumoniae": 6, "pseudomonas aeruginosa": 7}
+PLOT_EXCLUSIONS = {"klebsiella pneumoniae": {"ampicillin"}}
 
 ast = pd.read_csv("data/ast_clean.csv", low_memory=False)
 ast = ast[ast["test_name"] == "URINE"].copy()
@@ -36,12 +29,18 @@ def state_bootstrap(resistant, tested, rng, n_boot=1000):
     return np.percentile(boot, 2.5), np.percentile(boot, 97.5)
 
 
-rng = np.random.default_rng(42)   # one random stream, organisms in the order above
+rng = np.random.default_rng(42)
+replacement_rng = np.random.default_rng(42)
 results = []
 for organism, figure_number in ORGANISMS.items():
     d = ast[ast["organism"] == organism]
-    top10 = d.groupby("antibiotic")["tested"].sum().sort_values(ascending=False).head(10).index.tolist()
-    d = d[d["antibiotic"].isin(top10)]
+    ranked = d.groupby("antibiotic")["tested"].sum().sort_values(ascending=False)
+    original_top10 = ranked.head(10).index.tolist()
+    excluded = PLOT_EXCLUSIONS.get(organism, set())
+    top10 = ranked.loc[~ranked.index.isin(excluded)].head(10).index.tolist()
+
+
+    d = d[d["antibiotic"].isin(set(original_top10) | set(top10))]
     state_counts = d.groupby(["month_year", "antibiotic", "order_state"], dropna=False)[COUNTS].sum().reset_index()
     state_counts["tested"] = state_counts[COUNTS].sum(axis=1)
 
@@ -51,7 +50,10 @@ for organism, figure_number in ORGANISMS.items():
         resistant, tested = states["RESISTANT"].to_numpy(), states["tested"].to_numpy()
         if tested.sum() == 0:
             continue
-        ci_low, ci_high = state_bootstrap(resistant, tested, rng)
+        bootstrap_rng = rng if antibiotic in original_top10 else replacement_rng
+        ci_low, ci_high = state_bootstrap(resistant, tested, bootstrap_rng)
+        if antibiotic not in top10:
+            continue
         rows.append({"organism": organism, "antibiotic": antibiotic, "month_year": month,
                      "R_percent": resistant.sum() / tested.sum() * 100, "ci_low": ci_low, "ci_high": ci_high,
                      "N": int(tested.sum()), "R": int(resistant.sum()), "n_states": len(states)})
@@ -78,6 +80,9 @@ for organism, figure_number in ORGANISMS.items():
     plt.tight_layout()
     plt.savefig(f"results/figures/supp_fig{figure_number}_{organism.replace(' ', '_')}_urine_resistance.png",
                 bbox_inches="tight", dpi=300)
+    if organism == "klebsiella pneumoniae":
+        plt.savefig(f"results/figures/supp_fig{figure_number}_{organism.replace(' ', '_')}_urine_resistance.pdf",
+                    bbox_inches="tight")
     plt.close()
 
 pd.concat(results).to_csv("results/figures/supp_fig5-7_resistance_monthly_data.csv", index=False)

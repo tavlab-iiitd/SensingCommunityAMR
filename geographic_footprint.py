@@ -1,13 +1,4 @@
-"""Supplementary Figure 1: geographic and temporal footprint of the two data streams.
-
-(a) antibiotic prescriptions and (b) diagnostic culture samples by state/UT (log colour scale),
-(c) months with any recorded activity in each state/UT. These are platform-recorded counts,
-not population rates.
-
-Input : data/prescriptions_clean.csv, data/AMR_Pan_India_Aggregated_Diagnostic.csv,
-        geodata/geoBoundaries-IND-ADM1_simplified.geojson (geoBoundaries, CC BY 2.5 IN)
-Output: results/figures/supp_fig1_geographic_footprint.(png/pdf) and _data.csv
-"""
+"""Geographic coverage and monthly activity, 2023–2025."""
 
 import json
 import math
@@ -28,7 +19,7 @@ from matplotlib.ticker import FuncFormatter, LogLocator
 
 os.makedirs("results/figures", exist_ok=True)
 
-# Spelling variants -> the state name used in the boundary file
+
 ALIASES = {
     "andaman nicobar islands": "andaman and nicobar islands",
     "andaman and nicobar": "andaman and nicobar islands",
@@ -88,7 +79,7 @@ summary[["prescriptions", "diagnostic_samples"]] = summary[["prescriptions", "di
 summary["included"] = summary["included"].eq(True)
 summary.to_csv("results/figures/supp_fig1_geographic_footprint_data.csv", index=False)
 
-# Monthly presence: 1 = prescriptions only, 2 = diagnostics only, 3 = both
+
 months = sorted(set(rx["month_year"]) | set(dx["month_year"]))
 active = summary[(summary["prescriptions"] > 0) | (summary["diagnostic_samples"] > 0)]
 rx_active = set(zip(rx.loc[rx["Rx_Count"] > 0, "state"], rx.loc[rx["Rx_Count"] > 0, "month_year"]))

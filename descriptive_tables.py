@@ -1,10 +1,4 @@
-"""Table 1 and Supplementary Tables 1 and 3 (descriptive summaries).
-
-Input : data/prescriptions_clean.csv, data/State_Month_Prescription_updated.csv,
-        data/AMR_Pan_India_Aggregated_Diagnostic.csv, data/ast_clean.csv
-Output: results/tables/table1.csv, supp_table1_diagnostic_dataset.csv,
-        supp_table3_prescription_dataset.csv, supp_table3_unclassified_products.csv
-"""
+"""Prescription and diagnostic cohort summaries."""
 
 import os
 
@@ -30,7 +24,6 @@ def block(title, counts, total):
             for i, (name, count) in enumerate(counts.items())]
 
 
-# ---------------------------------------------------------------- prescriptions
 rx = pd.read_csv("data/prescriptions_clean.csv", low_memory=False)
 medicines = pd.read_csv("data/State_Month_Prescription_updated.csv")
 medicines = medicines[medicines["month_year"].between("2023-01", "2025-12")]
@@ -46,7 +39,7 @@ included = rx.loc[rx["state_included"], "Rx_Count"].sum()
 small_states = located[~located["state_included"]].groupby("state")["Rx_Count"].sum().sort_values(ascending=False)
 no_state = rx.loc[rx["patient_rx_state"] == "Not available", "Rx_Count"].sum()
 
-state_months = located.groupby(["state", "month_year"])["Rx_Count"].sum()   # active state-months only
+state_months = located.groupby(["state", "month_year"])["Rx_Count"].sum()
 possible_state_months = located["state"].nunique() * 36
 q1, median, q3 = state_months.quantile([0.25, 0.5, 0.75])
 
@@ -54,7 +47,7 @@ aware = rx.groupby("aware_2025")["Rx_Count"].sum()
 classes = rx.groupby("who_class_2025", dropna=False)["Rx_Count"].sum().sort_values(ascending=False)
 classes.index = classes.index.fillna("Unclassified")
 
-# ---------------------------------------------------------------- diagnostics
+
 dx = pd.read_csv("data/AMR_Pan_India_Aggregated_Diagnostic.csv", encoding="ISO-8859-1", low_memory=False)
 dx["end_state_date"] = pd.to_datetime(dx["end_state_date"], format="%Y-%m-%d")
 dx = dx[dx["end_state_date"].between("2023-01-01", "2025-12-31")].copy()
@@ -66,7 +59,7 @@ dx["specimen"] = dx["test_name"].map({
     "CULTURE AEROBIC BLOOD (AUTOMATED), PEDIATRIC": "Blood",
 })
 dx["organism"] = dx["organism_isolated"].map({o: clean_organism(o) for o in dx["organism_isolated"].unique()})
-# Culture positive = any culture not reported as "No growth" (includes 67 reports with no readable organism name)
+
 dx["positive"] = ~(dx["organism"] == "No growth")
 
 samples = dx["Total_Test"].sum()
@@ -81,7 +74,7 @@ ast = ast[ast["test_name"] == "URINE"].copy()
 ast["tested"] = ast[["RESISTANT", "INTERMEDIATE", "SENSITIVE"]].sum(axis=1)
 urine_resistance = ast.groupby(["organism_clean", "antibiotic_clean"])[["RESISTANT", "tested"]].sum()
 
-# ---------------------------------------------------------------- Table 1
+
 table1 = [
     ["Dataset size", "Total medicines recorded in all prescriptions", n(total_medicines), "—"],
     ["", "Antibiotic prescriptions; in states/UTs with >=1,000", f"{n(total_rx)}; {n(included)}", "—"],
@@ -135,7 +128,7 @@ for organism, short in [("Escherichia coli", "E. coli"), ("Klebsiella pneumoniae
 pd.DataFrame(table1, columns=["Domain", "Measure", "Prescription dataset", "Diagnostic dataset"]).to_csv(
     "results/tables/table1.csv", index=False)
 
-# ---------------------------------------------------------------- Supplementary Table 1
+
 pos = dx[dx["positive"]]
 s1 = [
     ["Geographic coverage", "States represented", dx["order_state"].nunique(), ""],
@@ -162,7 +155,7 @@ for specimen, top in [("Urine", 3), ("Blood", 2), ("Sputum", 2)]:
 pd.DataFrame(s1, columns=["Category", "Subcategory", "N", "%"]).to_csv(
     "results/tables/supp_table1_diagnostic_dataset.csv", index=False)
 
-# ---------------------------------------------------------------- Supplementary Table 3
+
 s3 = [
     ["Total antibiotics prescribed", "", total_rx, pct(total_rx, total_medicines)],
     ["Geographic coverage", "States and UTs represented", located["state"].nunique(), ""],

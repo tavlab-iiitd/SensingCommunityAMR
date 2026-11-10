@@ -1,11 +1,4 @@
-"""Figure 1 (Access share by state) and Supplementary Figure 3 (Watch share by state).
-
-Share of all antibiotic prescriptions in each of the 25 states/UTs with >=1,000
-antibiotic prescriptions. 95% intervals: 2,000 bootstrap resamples of pincodes within each state.
-
-Input : data/prescriptions_clean.csv
-Output: results/figures/fig1_state_access.(png/pdf), supp_fig3_state_watch.(png/pdf) and their data
-"""
+"""State Access and Watch shares with 1,000 pincode bootstrap samples."""
 
 import os
 
@@ -24,7 +17,7 @@ rx["state"] = rx["patient_rx_state"].str.title()
 rx["pincode"] = rx["patient_rx_pincode"].astype("Int64").astype(str).replace("<NA>", "Missing pincode")
 
 
-def state_share(group, n_boot=2000, seed=42):
+def state_share(group, n_boot=1000, seed=42):
     clusters = rx.groupby(["state", "pincode"], as_index=False)["Rx_Count"].sum()
     in_group = rx[rx["aware_2025"] == group].groupby(["state", "pincode"], as_index=False)["Rx_Count"].sum()
     clusters = clusters.merge(in_group, on=["state", "pincode"], how="left", suffixes=("_total", "_group"))
@@ -42,7 +35,6 @@ def state_share(group, n_boot=2000, seed=42):
     return pd.DataFrame(rows).sort_values("share_pct").reset_index(drop=True)
 
 
-# Figure 1: Access, with the former WHO 60% benchmark and the 2030 70% target
 access = state_share("Access")
 access.to_csv("results/figures/fig1_state_access_data.csv", index=False)
 
@@ -71,7 +63,7 @@ for ext in ["png", "pdf"]:
     fig.savefig(f"results/figures/fig1_state_access.{ext}", dpi=300, bbox_inches="tight")
 plt.close(fig)
 
-# Supplementary Figure 3: Watch
+
 watch = state_share("Watch")
 watch.to_csv("results/figures/supp_fig3_state_watch_data.csv", index=False)
 

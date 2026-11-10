@@ -1,16 +1,4 @@
-"""Monthly prescription trends: Figure 2 and Supplementary Figures 2 and 4.
-
-Shares are calculated in the 25 states/UTs with >=1,000 antibiotic prescriptions and smoothed
-with a centred 3-month rolling mean. 95% intervals: 1,000 bootstrap resamples of states within
-each month, smoothed in the same way.
-
-Figure 2   : AWaRe groups and top products as % of all antibiotic prescriptions
-Supp Fig 2 : antibiotics as % of all medicines (a) and per 100 non-antibiotic medicines (b)
-Supp Fig 4 : as Figure 2, but as % of all medicine prescriptions
-
-Input : data/prescriptions_clean.csv, data/State_Month_Prescription_updated.csv
-Output: results/figures/fig2_*, supp_fig2_*, supp_fig4_* (png, pdf and data csv)
-"""
+"""Monthly prescription shares with state bootstrap intervals."""
 
 import os
 
@@ -126,14 +114,13 @@ def save_trend_figure(data, name, denominator_label):
     data.to_csv(f"results/figures/{name}_data.csv", index=False)
 
 
-# Figure 2: denominator = all antibiotic prescriptions
 save_trend_figure(group_trends(antibiotics), "fig2_prescription_trends", "Total Antibiotic Prescriptions")
 
-# Supplementary Figure 4: denominator = all medicine prescriptions
+
 save_trend_figure(group_trends(medicines), "supp_fig4_prescription_trends_all_medicines",
                   "All Medicine Prescriptions")
 
-# Supplementary Figure 2: antibiotics among all medicines (a) and per 100 non-antibiotic medicines (b)
+
 panel = antibiotics.rename(columns={"denominator": "count"}).merge(medicines, on=["month", "state"])
 share = monthly_trend(panel, np.random.default_rng(42))
 panel["denominator"] = panel["denominator"] - panel["count"]

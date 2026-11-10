@@ -1,8 +1,4 @@
-"""Clean the prescription data and classify every product with WHO AWaRe 2025.
-
-Input : data/Prescription_Data_Pan_India_20260728.csv, data/aware-2025.xlsx
-Output: data/prescriptions_clean.csv
-"""
+"""Clean prescription records and assign WHO AWaRe 2025 groups."""
 
 import pandas as pd
 
@@ -27,7 +23,7 @@ for column in ["salt_name", "district", "patient_rx_state"]:
 salt = rx["salt_name"].str.lower().str.replace(r"\s*\+\s*", "+", regex=True)
 rx = rx[~salt.isin(NOT_ANTIBACTERIAL)].copy()
 
-# AWaRe 2025: the whole product must match a WHO entry, otherwise it is Unclassified
+
 who = load_who()
 products = rx["salt_name"].unique()
 groups = {p: aware_group(p, who) for p in products}
@@ -35,7 +31,7 @@ rx["aware_2025"] = rx["salt_name"].map(lambda p: groups[p][0])
 rx["who_class_2025"] = rx["salt_name"].map(lambda p: groups[p][1])
 rx["product_clean"] = rx["salt_name"].map({p: product_label(p, who) for p in products})
 
-# State-level analyses use states/UTs with at least 1,000 antibiotic prescriptions
+
 state = rx["patient_rx_state"]
 rx["patient_rx_state"] = state.where(~state.str.lower().isin(UNKNOWN_STATE), "Not available")
 state_totals = rx[rx["patient_rx_state"] != "Not available"].groupby("patient_rx_state")["Rx_Count"].sum()

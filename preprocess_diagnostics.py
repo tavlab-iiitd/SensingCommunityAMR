@@ -1,11 +1,4 @@
-"""Clean the antimicrobial susceptibility testing (AST) data.
-
-Standardises specimen, organism and antibiotic names and links each antibiotic to
-WHO AWaRe 2025.
-
-Input : data/AMR_Pan_India_Diagnostic_Antibiotic.csv, data/aware-2025.xlsx
-Output: data/ast_clean.csv
-"""
+"""Clean susceptibility records and assign WHO AWaRe 2025 groups."""
 
 import pandas as pd
 
