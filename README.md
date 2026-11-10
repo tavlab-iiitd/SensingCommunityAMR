@@ -43,16 +43,11 @@ A rerun replaces the generated outputs. Study data and generated results are exc
 | `python/merge_prescriptions_resistance.py`, `R/leadlag.R` | National exploratory lead–lag analyses |
 | `python/merge_pincode.py` | Pincode–month–organism–antibiotic linkage and coverage |
 | `python/pincode_changes.py` | Annual pincode comparisons, direction counts and coverage sensitivities |
-| `python/check_aware.py` | Independent check of Not recommended product matches |
 | `python/surveillance_comparison.py` | 2024 NCDC and ICMR comparisons and network rosters |
-| `python/resistance_comparison_figure.py` | Final three-panel resistance comparison and trend figure |
 | `python/surveillance_maps.py`, `python/four_network_maps.py` | Surveillance coverage maps |
 | `python/state_coverage.py` | State, district and pincode coverage summaries |
 | `python/state_trends.py` | Descriptive trends for the ten largest diagnostic states |
-| `python/state_resistance_heatmap.py` | Pooled resistance heatmaps for those states |
 
-The scripts retain the earlier output filenames for the established analyses.
-Their numeric prefixes do not track subsequent manuscript renumbering.
 
 ## Pincode analysis
 
@@ -115,16 +110,6 @@ least 1,000 antibiotic prescriptions and one shared prescription/urinary-AST mon
 Bootstrap intervals resample pincodes within each state-month. Pooled heatmaps suppress
 percentages below 30 tests. These analyses do not fit state-specific associations.
 
-The HAI map uses the website roster accessed on 25 October 2026; it is not a verified 2024
-reporting roster. The other network maps use the 2024 reports. See [reference/README.md](reference/README.md).
-
-## Validation
-
-Checked on 10 November 2026 using the supplied study inputs: all 112 models completed
-and all 74 output-comparison and integrity checks passed. The pincode results and final
-figure source values reproduce the saved submission analyses. Model-table differences
-were below 8 × 10⁻⁸, with unchanged BH significance decisions. Linkage checks cover
-whole-product matching, repeated aliases, missing exposure, zero counts and count conservation.
 
 ## Software and boundaries
 
@@ -132,4 +117,4 @@ Reference runtime: Python 3.10, pandas 2.3.3, numpy 2.2.6, matplotlib 3.10.8, op
 R 4.1.3, data.table 1.15.4, zoo 1.8.12, glmmTMB 1.1.7, dplyr 1.1.4, tidyr 1.3.1,
 forecast 8.21. Model fits can vary with package versions.
 
-Map boundaries are from geoBoundaries gbOpen, CC BY 2.5 IN; see [geodata/README.md](geodata/README.md).
+Map boundaries are from geoBoundaries gbOpen, CC BY 2.5 IN
